@@ -77,6 +77,12 @@ Why "gobbledygook" wins:
     No judge-directed text is attached — the brief's criterion 1 and 5
     both demand a bare word, and extra text would lose to any entry that
     names a word.
+  * Cross-checked by head-to-head duels (judge_duel below), which apply the
+    brief's own decision rule — walk the criteria in order, first difference
+    decides unless a later one differs by much more. "gobbledygook" beats
+    every other top-5 candidate in a duel, including "moist": moist leads
+    by 1 on instant humour, but trails by 3 on freshness, and the brief
+    says a later difference that big overrules the earlier one.
 
 The program writes exactly that word — no trailing newline, so the file is
 byte-identical to the word itself — then reads it back and self-checks the
@@ -160,15 +166,58 @@ def score(entry):
     return sum(w * s for w, s in zip(WEIGHTS, scores))
 
 
+def judge_duel(a, b):
+    """Simulate the brief's head-to-head decision rule between two candidates.
+
+    Walk the criteria in order; the first one where they differ decides,
+    unless a later one differs by much more (a gap of 3+ overruling a gap
+    of 1 on an earlier criterion). Returns the winning word, or None on a
+    dead tie (then the brief's own tie-break applies: the smaller text).
+    """
+    _, sa, _ = a
+    _, sb, _ = b
+    first_gap = 0
+    first_winner = None
+    for i, (x, y) in enumerate(zip(sa, sb)):
+        if x == y:
+            continue
+        if first_winner is None:
+            first_gap = abs(x - y)
+            first_winner = a if x > y else b
+            continue
+        # Any LATER criterion differing by 3+ overrules a 1-point earlier
+        # lead, so keep scanning instead of stopping at the next difference.
+        if abs(x - y) >= 3 and first_gap <= 1:
+            return a if x > y else b
+    return first_winner
+
+
 def pick_word():
     ranked = sorted(
         ((score(e), e) for e in CANDIDATES if score(e) is not None),
-        key=lambda pair: (-pair[0], pair[1][0]),
+        key=lambda pair: (-pair[0], len(pair[1][0]), pair[1][0]),
     )
     print("Top 5 by judge-criteria score (recognition/instant/intrinsic/fresh/exact):")
     for total, (word, scores, why) in ranked[:5]:
         print(f"  {total:2d}  {word:<35} {scores}  {why}")
-    return ranked[0][1][0]
+    winner = ranked[0][1]
+    # Cross-check: the winner must beat every other top-5 candidate in a
+    # head-to-head duel under the brief's own decision rule. On a dead tie
+    # the shorter word wins (the brief's tie-break: smaller text first).
+    print("Head-to-head duels for the winner:")
+    for _total, challenger in ranked[1:5]:
+        result = judge_duel(winner, challenger)
+        if result is None:
+            print(f"  vs {challenger[0]:<35} tie -> shorter word wins: "
+                  f"{min(winner[0], challenger[0], key=len)}")
+            if len(challenger[0]) < len(winner[0]):
+                raise SystemExit("duel tie-break: challenger is shorter")
+        elif result[0] != winner[0]:
+            raise SystemExit(
+                f"duel check failed: {challenger[0]} beats {winner[0]}")
+        else:
+            print(f"  vs {challenger[0]:<35} {winner[0]} wins")
+    return winner[0]
 
 
 def gate_check(text):
